@@ -6,7 +6,7 @@ import DriverDashboard from './components/DriverDashboard';
 import Header from './components/Header';
 import { calculateDistance } from './utils';
 
-const DEFAULT_LOCATION: Coordinates = { lat: 12.9716, lng: 77.5946 };
+const DEFAULT_LOCATION: Coordinates = { lat: 12.9716, lng: 77.5946 }; // Bangalore
 const ASSIGNMENT_TIMEOUT = 60000; // 60 seconds
 
 const MOCK_DRIVERS: Driver[] = [
@@ -17,7 +17,7 @@ const MOCK_DRIVERS: Driver[] = [
     rating: 4.8,
     experience: 8,
     specialties: [VehicleType.SUV, VehicleType.MANUAL],
-    location: { lat: 12.9716, lng: 77.5946 },
+    location: { lat: 12.9716, lng: 77.5946 }, // Bangalore
     status: DriverStatus.AVAILABLE,
     jobsCompleted: 120,
     subscriptionActive: true,
@@ -75,7 +75,8 @@ const App: React.FC = () => {
     };
 
     const handleError = (error: GeolocationPositionError) => {
-      setLocationError("Location access denied.");
+      console.warn("Location error:", error.message);
+      setLocationError("Enable GPS for better nearby driver matching.");
       if (!userLocation) setUserLocation(DEFAULT_LOCATION);
     };
 
@@ -89,12 +90,14 @@ const App: React.FC = () => {
   const routeToNextDriver = useCallback(() => {
     if (!currentBooking) return;
     
-    // Clear the current timer
-    if (timerRef.current) clearTimeout(timerRef.current);
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
 
     if (candidateQueue.length <= 1) {
       handleUpdateBookingStatus(BookingStatus.CANCELLED);
-      alert("No available drivers nearby accepted your request. Please try again later.");
+      alert("All nearby drivers are currently busy. Donet.in is looking for more partners in your area.");
       return;
     }
 
@@ -111,8 +114,6 @@ const App: React.FC = () => {
         driverPhoto: nextDriver.photo,
         timestamp: Date.now()
       } : null);
-      
-      console.log(`Re-routing to next nearest driver: ${nextDriver.name}`);
     }
   }, [currentBooking, candidateQueue, drivers]);
 
@@ -122,8 +123,6 @@ const App: React.FC = () => {
       timerRef.current = setTimeout(() => {
         routeToNextDriver();
       }, ASSIGNMENT_TIMEOUT);
-    } else {
-      if (timerRef.current) clearTimeout(timerRef.current);
     }
 
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
@@ -153,8 +152,8 @@ const App: React.FC = () => {
       driverPhoto: selectedDriver.photo,
       status: BookingStatus.REQUESTED,
       timestamp: Date.now(),
-      pickupLocation: 'Your Current Location',
-      destinationLocation: 'City Center Hub',
+      pickupLocation: 'Your Current Area',
+      destinationLocation: 'Nearby Hub',
     };
     setCurrentBooking(newBooking);
     
@@ -168,6 +167,10 @@ const App: React.FC = () => {
       const driverId = currentBooking?.driverId;
       setDrivers(prev => prev.map(d => d.id === driverId ? { ...d, status: DriverStatus.AVAILABLE } : d));
       setCandidateQueue([]);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
     }
   }, [currentBooking]);
 
@@ -180,12 +183,12 @@ const App: React.FC = () => {
       <Header role={role} onRoleSwitch={setRole} />
       
       {locationError && (
-        <div className="bg-amber-100 text-amber-800 px-4 py-2 text-[10px] text-center font-medium">
+        <div className="bg-amber-100 text-amber-800 px-4 py-1.5 text-[9px] text-center font-bold uppercase tracking-widest">
           {locationError}
         </div>
       )}
 
-      <main className="flex-1 overflow-y-auto relative">
+      <main className="flex-1 overflow-y-auto relative bg-slate-50">
         {role === UserRole.CUSTOMER ? (
           <CustomerView 
             drivers={drivers} 
@@ -206,15 +209,15 @@ const App: React.FC = () => {
       <nav className="border-t bg-white h-16 flex items-center justify-around px-4 sticky bottom-0 z-50">
         <button className="flex flex-col items-center text-blue-600">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
-          <span className="text-[10px] font-medium uppercase tracking-widest mt-1">Home</span>
+          <span className="text-[10px] font-black uppercase tracking-widest mt-1">Explore</span>
         </button>
         <button className="flex flex-col items-center text-slate-400">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-          <span className="text-[10px] font-medium uppercase tracking-widest mt-1">Activity</span>
+          <span className="text-[10px] font-black uppercase tracking-widest mt-1">Bookings</span>
         </button>
         <button className="flex flex-col items-center text-slate-400">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
-          <span className="text-[10px] font-medium uppercase tracking-widest mt-1">Profile</span>
+          <span className="text-[10px] font-black uppercase tracking-widest mt-1">Network</span>
         </button>
       </nav>
     </div>
