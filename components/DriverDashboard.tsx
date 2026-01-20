@@ -1,494 +1,364 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { formatCurrency } from '../utils';
-import { Booking, BookingStatus, VehicleType, VehicleProvision } from '../types';
+import { Booking, BookingStatus, Driver, DriverStatus, VehicleType, ApprovalStatus, DriverType } from '../types';
+import ChatModal from './ChatModal';
+
+const PAYMENT_LINK = "https://rzp.io/rzp/ZKe8OtXi";
 
 interface DriverDashboardProps {
+  activeDriver: Driver | null;
+  onLogin: (driver: Driver) => void;
+  onRegister: (driver: Driver) => void;
+  onUpdateDriver: (driver: Driver) => void;
   currentBooking: Booking | null;
   onUpdateStatus: (status: BookingStatus) => void;
   onDecline: () => void;
+  onSendMessage: (text: string) => void;
 }
 
-const DriverDashboard: React.FC<DriverDashboardProps> = ({ currentBooking, onUpdateStatus, onDecline }) => {
-  const [isOnline, setIsOnline] = useState(true);
-  const [isSubscribed, setIsSubscribed] = useState(false);
-  const [hasSubmittedProfile, setHasSubmittedProfile] = useState(false);
+const DriverDashboard: React.FC<DriverDashboardProps> = ({ 
+  activeDriver, 
+  onLogin, 
+  onRegister,
+  onUpdateDriver,
+  currentBooking, 
+  onUpdateStatus, 
+  onDecline, 
+  onSendMessage 
+}) => {
+  const [view, setView] = useState<'AUTH' | 'LOGIN' | 'REGISTER' | 'DASHBOARD'>('AUTH');
+  const [loginForm, setLoginForm] = useState({ phone: '', password: '' });
   const [regStep, setRegStep] = useState(1);
-  const [showAcceptedDetails, setShowAcceptedDetails] = useState(false);
-  const [hourlyRate, setHourlyRate] = useState<number>(150);
-  const [isEditingRate, setIsEditingRate] = useState(false);
-  const [currentPlan, setCurrentPlan] = useState<'Basic' | 'Pro'>('Basic');
-  const [timeLeft, setTimeLeft] = useState(100); 
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [showInstallPopup, setShowInstallPopup] = useState(false);
-
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  // Profile Form State
-  const [profileData, setProfileData] = useState({
+  const [isEditing, setIsEditing] = useState(false);
+  // Fix: Added missing showChat state
+  const [showChat, setShowChat] = useState(false);
+  const [regData, setRegData] = useState<Partial<Driver>>({
     name: '',
     phone: '',
-    age: '',
-    experience: '5',
-    vehicleProvision: VehicleProvision.CUSTOMER_OWNED,
-    preferredArea: '',
-    profilePhoto: null as File | null,
-    licensePhoto: null as File | null,
-    locationPermission: false,
-    notificationsEnabled: false
+    password: '',
+    driverType: DriverType.ONLY_DRIVER,
+    hourlyRate: 150,
+    specialties: [VehicleType.SEDAN],
+    photo: '',
+    documents: { license: '', aadhaar: '' }
   });
 
-  const isRequestActive = currentBooking?.status === BookingStatus.REQUESTED && isOnline && isSubscribed;
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
 
-  useEffect(() => {
-    // PWA Install Prompt Listener
-    const handleBeforeInstallPrompt = (e: any) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-  }, []);
-
-  useEffect(() => {
-    let interval: ReturnType<typeof setInterval> | undefined;
-    
-    if (isRequestActive) {
-      setTimeLeft(100);
-      
-      if (!audioRef.current) {
-        audioRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-        audioRef.current.loop = true;
-        audioRef.current.volume = 0.6;
-      }
-      
-      audioRef.current.play().catch(() => {
-        console.warn("Audio autoplay blocked by browser policy.");
-      });
-
-      interval = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 0) {
-            clearInterval(interval);
-            return 0;
-          }
-          return prev - (100 / 60); 
-        });
-      }, 1000);
-    } else {
-      setTimeLeft(100);
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-      }
-    }
-    
-    return () => {
-      if (interval) clearInterval(interval);
-      if (audioRef.current) audioRef.current.pause();
-    };
-  }, [isRequestActive]);
-
-  const handleAcceptJob = () => {
-    onUpdateStatus(BookingStatus.ACCEPTED);
-    setShowAcceptedDetails(true);
-  };
-
-  const handleDeclineJob = () => {
-    onDecline();
-  };
-
-  const handleRequestLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        () => setProfileData(prev => ({ ...prev, locationPermission: true })),
-        () => alert("Location access is required for Donet.in drivers.")
-      );
-    }
-  };
-
-  const handlePWAInstall = async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        setProfileData(prev => ({ ...prev, notificationsEnabled: true }));
-      }
-      setDeferredPrompt(null);
-    } else {
-      setShowInstallPopup(true);
-    }
-  };
-
-  const handleGrantPermissions = () => {
-    if ("Notification" in window) {
-      Notification.requestPermission().then(permission => {
-        if (permission === "granted") {
-          setProfileData(prev => ({ ...prev, notificationsEnabled: true }));
-        }
-      });
-    }
-    handleRequestLocation();
-    alert("Donet.in permissions (Location, Camera, Notifications) have been requested.");
-  };
-
-  const handleRegisterAndPay = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!profileData.name || !profileData.phone || !profileData.age) {
-      alert("Please fill in all identity details.");
-      return;
-    }
-    setHasSubmittedProfile(true);
-    // Redirect to Razorpay gateway
-    window.location.href = 'https://rzp.io/rzp/ZKe8OtXi';
-  };
-
-  const activeJob = currentBooking && ![BookingStatus.COMPLETED, BookingStatus.CANCELLED].includes(currentBooking.status) 
-    ? currentBooking 
-    : null;
-
-  const renewalDate = new Date();
-  renewalDate.setDate(renewalDate.getDate() + 30);
-  const formattedDate = renewalDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-
-  // Registration Flow
-  if (!hasSubmittedProfile) {
+  // Simple Auth View
+  if (!activeDriver && view === 'AUTH') {
     return (
-      <div className="p-6 bg-slate-50 min-h-full pb-10">
-        <div className="max-w-md mx-auto">
-          <div className="text-center mb-8">
-            <h2 className="text-3xl font-black text-slate-900 tracking-tight mb-2">Driver Onboarding</h2>
-            <div className="flex items-center justify-center gap-2">
-              {[1, 2, 3, 4].map(s => (
-                <div key={s} className={`h-1.5 w-8 rounded-full transition-all duration-300 ${regStep >= s ? 'bg-blue-600' : 'bg-slate-200'}`}></div>
-              ))}
+      <div className="h-full flex flex-col p-8 justify-center space-y-8 animate-in fade-in duration-500">
+        <div className="text-center">
+          <div className="w-20 h-20 bg-blue-600 rounded-3xl flex items-center justify-center text-white mx-auto mb-6 shadow-2xl shadow-blue-200">
+            <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+          </div>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tighter">Driver Network</h2>
+          <p className="text-slate-500 text-sm mt-2">Manage your professional driver profile</p>
+        </div>
+        <div className="space-y-4">
+          <button onClick={() => setView('LOGIN')} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl">Login</button>
+          <button onClick={() => setView('REGISTER')} className="w-full bg-white border-2 border-slate-100 text-slate-900 py-5 rounded-2xl font-black text-sm uppercase tracking-widest">Create Account</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Login View
+  if (view === 'LOGIN') {
+    return (
+      <div className="h-full p-8 flex flex-col animate-in slide-in-from-right duration-300">
+        <button onClick={() => setView('AUTH')} className="mb-8 text-slate-400">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7"></path></svg>
+        </button>
+        <h2 className="text-3xl font-black text-slate-900 mb-8 tracking-tighter">Welcome Back</h2>
+        <div className="space-y-6">
+          <input 
+            type="tel" placeholder="Mobile Number" 
+            className="w-full p-5 bg-white border border-slate-200 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-600"
+            value={loginForm.phone} onChange={e => setLoginForm({...loginForm, phone: e.target.value})}
+          />
+          <input 
+            type="password" placeholder="Password" 
+            className="w-full p-5 bg-white border border-slate-200 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-600"
+            value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})}
+          />
+          <button 
+            onClick={() => {
+              // Mock Login Logic
+              if (loginForm.phone === '9876543210' && loginForm.password === 'password123') {
+                onLogin({ id: '1', name: 'Rajesh Kumar', phone: '9876543210', photo: 'https://picsum.photos/200', rating: 4.8, experience: 8, specialties: [VehicleType.SUV], location: { lat: 0, lng: 0 }, status: DriverStatus.AVAILABLE, approvalStatus: ApprovalStatus.APPROVED, driverType: DriverType.ONLY_DRIVER, jobsCompleted: 120, jobsLeft: 2, hourlyRate: 150 });
+              } else {
+                alert('Invalid Credentials');
+              }
+            }}
+            className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl"
+          >Sign In</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Register View
+  if (view === 'REGISTER') {
+    const startCamera = async () => {
+      setIsCapturing(true);
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      if (videoRef.current) videoRef.current.srcObject = stream;
+    };
+
+    const takePhoto = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current?.videoWidth || 0;
+      canvas.height = videoRef.current?.videoHeight || 0;
+      canvas.getContext('2d')?.drawImage(videoRef.current!, 0, 0);
+      setRegData({ ...regData, photo: canvas.toDataURL('image/jpeg') });
+      const stream = videoRef.current?.srcObject as MediaStream;
+      stream?.getTracks().forEach(t => t.stop());
+      setIsCapturing(false);
+    };
+
+    return (
+      <div className="h-full p-8 flex flex-col animate-in slide-in-from-right duration-300">
+        <button onClick={() => setView('AUTH')} className="mb-6 text-slate-400">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7"></path></svg>
+        </button>
+        
+        <div className="mb-8 flex items-center justify-between">
+          <h2 className="text-2xl font-black text-slate-900 tracking-tighter">Registration</h2>
+          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Step {regStep} of 4</span>
+        </div>
+
+        <div className="flex-1 overflow-y-auto hide-scrollbar space-y-6">
+          {regStep === 1 && (
+            <div className="space-y-6">
+              <input type="text" placeholder="Full Name" className="w-full p-4 border border-slate-200 rounded-2xl font-bold outline-none" value={regData.name} onChange={e => setRegData({...regData, name: e.target.value})} />
+              <input type="tel" placeholder="Mobile Number" className="w-full p-4 border border-slate-200 rounded-2xl font-bold outline-none" value={regData.phone} onChange={e => setRegData({...regData, phone: e.target.value})} />
+              <input type="password" placeholder="Set Password" className="w-full p-4 border border-slate-200 rounded-2xl font-bold outline-none" value={regData.password} onChange={e => setRegData({...regData, password: e.target.value})} />
             </div>
-            <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-3">Step {regStep} of 4</p>
-          </div>
+          )}
 
-          <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl border border-slate-100 min-h-[520px] flex flex-col overflow-hidden relative">
-            
-            {regStep === 1 && (
-              <div className="space-y-6 flex-1 animate-in fade-in slide-in-from-right-4 duration-300">
-                <h3 className="text-xl font-black text-slate-800">Identity Details</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-[10px] font-black uppercase text-slate-400 mb-1 pl-1">Full Name</label>
-                    <input required type="text" placeholder="e.g. Rajesh Kumar" className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold focus:ring-2 focus:ring-blue-600 focus:outline-none" value={profileData.name} onChange={e => setProfileData({...profileData, name: e.target.value})} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[10px] font-black uppercase text-slate-400 mb-1 pl-1">Age</label>
-                      <input required type="number" placeholder="28" className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold focus:ring-2 focus:ring-blue-600 focus:outline-none" value={profileData.age} onChange={e => setProfileData({...profileData, age: e.target.value})} />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-black uppercase text-slate-400 mb-1 pl-1">Phone</label>
-                      <input required type="tel" placeholder="98XXXXXXXX" className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold focus:ring-2 focus:ring-blue-600 focus:outline-none" value={profileData.phone} onChange={e => setProfileData({...profileData, phone: e.target.value})} />
-                    </div>
-                  </div>
-                </div>
-                <button onClick={() => setRegStep(2)} className="w-full bg-blue-600 py-5 rounded-2xl text-white font-black text-lg mt-auto active:scale-95 transition-all shadow-xl shadow-blue-100">Next: Documents</button>
-              </div>
-            )}
-
-            {regStep === 2 && (
-              <div className="space-y-6 flex-1 animate-in fade-in slide-in-from-right-4 duration-300">
-                <h3 className="text-xl font-black text-slate-800">Profile & Documents</h3>
-                <div className="space-y-5">
-                   <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center shrink-0 border-2 border-dashed border-blue-200">
-                        <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-xs font-black text-slate-700 uppercase">Profile Photo</p>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">Must match license photo</p>
-                        <input type="file" className="hidden" id="profileImg" onChange={e => setProfileData({...profileData, profilePhoto: e.target.files?.[0] || null})} />
-                        <label htmlFor="profileImg" className="text-[10px] font-black text-blue-600 uppercase mt-1 inline-block cursor-pointer">Upload Photo</label>
-                      </div>
-                   </div>
-                   <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center shrink-0 border-2 border-dashed border-slate-200">
-                        <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-xs font-black text-slate-700 uppercase">Driving License</p>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">Clearly visible scan</p>
-                        <input type="file" className="hidden" id="licenseImg" onChange={e => setProfileData({...profileData, licensePhoto: e.target.files?.[0] || null})} />
-                        <label htmlFor="licenseImg" className="text-[10px] font-black text-blue-600 uppercase mt-1 inline-block cursor-pointer">Upload License</label>
-                      </div>
-                   </div>
-                   <div className="pt-4">
-                      <label className="block text-[10px] font-black uppercase text-slate-400 mb-2 text-center">Service Type</label>
-                      <div className="grid grid-cols-2 gap-3">
-                        <button type="button" onClick={() => setProfileData({...profileData, vehicleProvision: VehicleProvision.CUSTOMER_OWNED})} className={`p-3 rounded-xl border-2 text-[10px] font-black uppercase transition-all ${profileData.vehicleProvision === VehicleProvision.CUSTOMER_OWNED ? 'border-blue-600 bg-blue-50 text-blue-900' : 'border-slate-100 text-slate-400'}`}>Driving Only</button>
-                        <button type="button" onClick={() => setProfileData({...profileData, vehicleProvision: VehicleProvision.DRIVER_OWNED})} className={`p-3 rounded-xl border-2 text-[10px] font-black uppercase transition-all ${profileData.vehicleProvision === VehicleProvision.DRIVER_OWNED ? 'border-blue-600 bg-blue-50 text-blue-900' : 'border-slate-100 text-slate-400'}`}>With Vehicle</button>
-                      </div>
-                   </div>
-                </div>
-                <div className="flex gap-3 mt-auto">
-                  <button onClick={() => setRegStep(1)} className="flex-1 py-4 rounded-2xl bg-slate-100 text-slate-600 font-black uppercase text-xs">Back</button>
-                  <button onClick={() => setRegStep(3)} className="flex-[2] py-4 rounded-2xl bg-blue-600 text-white font-black uppercase text-xs">Next: Region</button>
-                </div>
-              </div>
-            )}
-
-            {regStep === 3 && (
-              <div className="space-y-6 flex-1 animate-in fade-in slide-in-from-right-4 duration-300">
-                <h3 className="text-xl font-black text-slate-800">Operational Area</h3>
-                <div className="space-y-4">
-                  <div className="p-5 bg-blue-50 rounded-2xl border border-blue-100">
-                    <p className="text-[10px] font-black text-blue-900 uppercase tracking-widest mb-3 text-center">Live GPS Search</p>
-                    <button 
-                      onClick={handleRequestLocation} 
-                      className={`w-full py-3 rounded-xl flex items-center justify-center gap-2 font-black text-xs uppercase transition-all ${profileData.locationPermission ? 'bg-green-100 text-green-700' : 'bg-white text-blue-600 shadow-sm border border-blue-100'}`}
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path></svg>
-                      {profileData.locationPermission ? 'Permission Active' : 'Request Location Access'}
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <span className="text-[9px] font-black text-slate-300">CITY</span>
-                    </div>
-                    <input 
-                      type="text" 
-                      placeholder="e.g. Bangalore, Mumbai, Delhi" 
-                      className="w-full pl-12 pr-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-600"
-                      value={profileData.preferredArea}
-                      onChange={e => setProfileData({...profileData, preferredArea: e.target.value})}
-                    />
-                  </div>
-                  <p className="text-[9px] text-slate-400 font-medium text-center px-4">Donet.in matches you with customers based on your live vicinity for fastest pickups.</p>
-                </div>
-                <div className="flex gap-3 mt-auto">
-                  <button onClick={() => setRegStep(2)} className="flex-1 py-4 rounded-2xl bg-slate-100 text-slate-600 font-black uppercase text-xs">Back</button>
-                  <button onClick={() => setRegStep(4)} className="flex-[2] py-4 rounded-2xl bg-blue-600 text-white font-black uppercase text-xs">Next: App Install</button>
-                </div>
-              </div>
-            )}
-
-            {regStep === 4 && (
-              <div className="space-y-6 flex-1 animate-in fade-in slide-in-from-right-4 duration-300">
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl shadow-blue-100 relative">
-                     <div className="absolute inset-0 bg-white rounded-2xl animate-ping opacity-10"></div>
-                     <svg className="w-8 h-8 text-white relative z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-                  </div>
-                  <h3 className="text-xl font-black text-slate-800 tracking-tight">Drivers Online Network</h3>
-                  <p className="text-sm text-slate-500 mt-2">Join the <strong>Donet.in</strong> fleet. Install the app to receive loud audible job alerts on your phone.</p>
-                </div>
-
-                <div className="space-y-3">
-                  <button 
-                    onClick={handlePWAInstall}
-                    className="w-full bg-blue-50 border-2 border-blue-200 py-4 rounded-2xl flex items-center justify-center gap-3 active:scale-[0.98] transition-all"
-                  >
-                    <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                    <span className="text-xs font-black text-blue-900 uppercase">Install Donet Web App</span>
-                  </button>
-
-                  <button 
-                    onClick={handleGrantPermissions}
-                    className="w-full bg-slate-900 py-4 rounded-2xl flex items-center justify-center gap-3 text-white active:scale-[0.98] transition-all shadow-lg"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path></svg>
-                    <span className="text-xs font-black uppercase">Enable Notification Alerts</span>
+          {regStep === 2 && (
+            <div className="space-y-6 text-center">
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Take a Profile Selfie</p>
+              {regData.photo ? (
+                <div className="relative mx-auto w-48 h-48">
+                  <img src={regData.photo} className="w-full h-full rounded-[2rem] object-cover border-4 border-blue-600 shadow-xl" alt="Selfie" />
+                  <button onClick={() => setRegData({...regData, photo: ''})} className="absolute -top-2 -right-2 bg-red-500 text-white p-2 rounded-full shadow-lg">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12"></path></svg>
                   </button>
                 </div>
-
-                <div className="bg-blue-600/5 p-4 rounded-2xl border border-blue-600/10 mt-auto">
-                   <div className="flex justify-between items-center mb-1">
-                      <span className="text-[10px] font-black text-blue-900 uppercase tracking-widest">Partner Monthly Fee</span>
-                      <span className="text-lg font-black text-blue-600">₹100</span>
-                   </div>
-                   <p className="text-[9px] text-blue-700 font-bold uppercase tracking-tighter text-center">Get Unlimited Job Access • 2 Free Bookings Included</p>
+              ) : isCapturing ? (
+                <div className="relative mx-auto w-48 h-48 overflow-hidden rounded-[2rem] bg-slate-100 shadow-inner">
+                  <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover scale-x-[-1]" />
+                  <button onClick={takePhoto} className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-blue-600 text-white p-4 rounded-full shadow-xl">
+                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path d="M4 5a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2h-1.586a1 1 0 01-.707-.293l-1.121-1.121A2 2 0 0011.172 3H8.828a2 2 0 00-1.414.586L6.293 4.707A1 1 0 015.586 5H4z" /><path d="M10 14a3 3 0 100-6 3 3 0 000 6z" /></svg>
+                  </button>
                 </div>
-
-                <button onClick={handleRegisterAndPay} className="w-full bg-blue-600 py-5 rounded-2xl text-white font-black text-lg shadow-xl shadow-blue-200 active:scale-95 transition-all">Submit & Join Donet.in</button>
-                <button onClick={() => setRegStep(3)} className="w-full py-1 text-[10px] font-black text-slate-300 uppercase">Return to Map Area</button>
+              ) : (
+                <button onClick={startCamera} className="w-full py-12 border-2 border-dashed border-slate-200 rounded-[2.5rem] flex flex-col items-center justify-center gap-2 text-slate-400 active:bg-slate-50">
+                  <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812-1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                  <span className="text-[10px] font-black uppercase tracking-widest">Open Camera</span>
+                </button>
+              )}
+              
+              <div className="grid grid-cols-2 gap-4 mt-8">
+                <div className="space-y-2 text-left">
+                  <label className="text-[9px] font-black uppercase text-slate-400 ml-1">Driving License</label>
+                  <button className="w-full py-4 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600">Upload Doc</button>
+                </div>
+                <div className="space-y-2 text-left">
+                  <label className="text-[9px] font-black uppercase text-slate-400 ml-1">Aadhaar Card</label>
+                  <button className="w-full py-4 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-bold text-slate-600">Upload Doc</button>
+                </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {showInstallPopup && (
-              <div className="absolute inset-0 z-50 bg-white/95 backdrop-blur-sm flex flex-col items-center justify-center p-8 text-center animate-in fade-in zoom-in duration-300">
-                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-6">
-                   <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-                </div>
-                <h4 className="text-xl font-black text-slate-900 mb-2 tracking-tight">How to Install</h4>
-                <div className="text-xs text-slate-500 font-bold space-y-4 mb-8 text-left max-w-[240px]">
-                   <p className="flex gap-2"><span>1.</span> Tap browser settings (3 dots or share)</p>
-                   <p className="flex gap-2"><span>2.</span> Select <strong>'Add to Home Screen'</strong></p>
-                   <p className="flex gap-2"><span>3.</span> Open from Home Screen for job alerts.</p>
-                </div>
-                <button onClick={() => setShowInstallPopup(false)} className="bg-slate-900 text-white px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest">Okay, Understood</button>
+          {regStep === 3 && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <button 
+                  onClick={() => setRegData({...regData, driverType: DriverType.ONLY_DRIVER})}
+                  className={`p-6 rounded-[2rem] border-2 transition-all ${regData.driverType === DriverType.ONLY_DRIVER ? 'border-blue-600 bg-blue-50/50' : 'border-slate-100'}`}
+                >
+                  <h4 className="font-black text-sm">Only Driver</h4>
+                </button>
+                <button 
+                  onClick={() => setRegData({...regData, driverType: DriverType.WITH_CAR})}
+                  className={`p-6 rounded-[2rem] border-2 transition-all ${regData.driverType === DriverType.WITH_CAR ? 'border-blue-600 bg-blue-50/50' : 'border-slate-100'}`}
+                >
+                  <h4 className="font-black text-sm">With Car</h4>
+                </button>
               </div>
-            )}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Your Rates (₹)</label>
+                <div className="grid grid-cols-2 gap-4">
+                  <input type="number" placeholder="Per Hour" className="p-4 border border-slate-200 rounded-2xl font-bold outline-none" value={regData.hourlyRate} onChange={e => setRegData({...regData, hourlyRate: Number(e.target.value)})} />
+                  <input type="number" placeholder="Per KM" className="p-4 border border-slate-200 rounded-2xl font-bold outline-none" value={regData.ratePerKm} onChange={e => setRegData({...regData, ratePerKm: Number(e.target.value)})} />
+                </div>
+              </div>
+            </div>
+          )}
 
-          </div>
+          {regStep === 4 && (
+            <div className="text-center space-y-8 animate-in zoom-in duration-500">
+              <div className="w-20 h-20 bg-green-500 rounded-[1.5rem] flex items-center justify-center text-white mx-auto shadow-xl">
+                <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7"></path></svg>
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-slate-900 tracking-tighter">Ready to Start?</h3>
+                <p className="text-slate-500 text-xs mt-2 px-6">Payment of ₹100 is required for activation and profile verification.</p>
+              </div>
+              <button 
+                onClick={() => window.open(PAYMENT_LINK, '_blank')}
+                className="w-full bg-blue-600 text-white py-6 rounded-[2rem] font-black text-xl shadow-2xl active:scale-95 transition-all"
+              >Pay ₹100 Now</button>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-8">
+          {regStep < 4 ? (
+            <button 
+              onClick={() => setRegStep(regStep + 1)}
+              className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl active:scale-95"
+            >Next Step</button>
+          ) : (
+            <button 
+              onClick={() => {
+                const newDriver: Driver = {
+                  ...regData as Driver,
+                  id: 'driver-' + Date.now(),
+                  rating: 5.0,
+                  experience: 0,
+                  status: DriverStatus.OFFLINE,
+                  approvalStatus: ApprovalStatus.PENDING,
+                  jobsCompleted: 0,
+                  jobsLeft: 10,
+                  location: { lat: 12.97, lng: 77.59 }
+                };
+                onRegister(newDriver);
+              }}
+              className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl active:scale-95"
+            >Submit for Approval</button>
+          )}
         </div>
       </div>
     );
   }
 
-  // Verification State
-  if (!isSubscribed) {
+  // Pending Approval View
+  if (activeDriver?.approvalStatus === ApprovalStatus.PENDING) {
     return (
-      <div className="p-6 bg-slate-50 min-h-full flex flex-col items-center justify-center text-center">
-        <div className="w-24 h-24 bg-amber-100 rounded-full flex items-center justify-center mb-8 relative">
-          <div className="absolute inset-0 bg-amber-200 rounded-full animate-ping opacity-25"></div>
-          <svg className="w-12 h-12 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+      <div className="h-full flex flex-col p-10 justify-center items-center text-center animate-in fade-in duration-700">
+        <div className="w-24 h-24 bg-yellow-400 rounded-[2.5rem] flex items-center justify-center text-white mb-8 animate-pulse shadow-xl shadow-yellow-100">
+          <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
         </div>
-        <h2 className="text-3xl font-black text-slate-900 mb-4 leading-tight tracking-tight">Verifying Your Profile</h2>
-        <p className="text-slate-500 mb-10 max-w-xs leading-relaxed">
-          The <strong>Donet.in</strong> team is reviewing your documents. Verification takes about 60 mins. <br/>
-          You'll be notified once you're live!
-        </p>
-        <button onClick={() => setIsSubscribed(true)} className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] hover:underline">(Simulate Approval)</button>
+        <h2 className="text-2xl font-black text-slate-900 tracking-tighter">Under Review</h2>
+        <p className="text-slate-500 text-sm mt-4 px-8 leading-relaxed">Our team is verifying your documents. You will receive an alert once your profile is live.</p>
+        <button onClick={() => window.location.reload()} className="mt-12 text-[10px] font-black text-blue-600 uppercase tracking-widest border-b-2 border-blue-600 pb-1">Refresh Status</button>
       </div>
     );
   }
 
+  // Main Dashboard View
   return (
-    <div className={`p-0 bg-slate-50 min-h-full pb-20 transition-all duration-500 relative ${isRequestActive ? 'overflow-hidden' : ''}`}>
-      
-      {isRequestActive && (
-        <div className="fixed inset-0 pointer-events-none z-[105] ring-[30px] ring-blue-600/30 animate-pulse duration-[800ms] shadow-[inset_0_0_100px_rgba(37,99,235,0.2)]"></div>
-      )}
+    <div className="h-full w-full bg-slate-100 flex flex-col px-6 py-4 space-y-6 overflow-y-auto pb-10">
+      {/* Profile Header */}
+      <div className="bg-white p-6 rounded-[2.5rem] shadow-xl border border-slate-100 flex items-center gap-4">
+        <img src={activeDriver?.photo} className="w-16 h-16 rounded-2xl object-cover border-4 border-slate-50" alt="" />
+        <div className="flex-1">
+          <h3 className="text-xl font-black text-slate-900 leading-none">{activeDriver?.name}</h3>
+          <p className="text-[10px] font-black text-slate-400 uppercase mt-1 tracking-widest">Verified Member</p>
+        </div>
+        <button onClick={() => setIsEditing(!isEditing)} className="p-3 bg-slate-50 rounded-2xl">
+          <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+        </button>
+      </div>
 
-      {isRequestActive && (
-        <div className="sticky top-0 z-[110] animate-in slide-in-from-top duration-500">
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-6 shadow-[0_25px_60px_rgba(37,99,235,0.45)] border-b-4 border-white/20">
-            <div className="flex items-center justify-between gap-5">
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  <div className="absolute inset-0 bg-white rounded-full animate-ping opacity-50"></div>
-                  <div className="relative w-16 h-16 bg-white rounded-[24px] flex items-center justify-center shadow-2xl transform rotate-3 animate-bounce">
-                    <svg className="w-9 h-9 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                  </div>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-lg font-black uppercase tracking-widest text-white leading-none mb-1 tracking-tighter">New Donet Request!</h3>
-                  <p className="text-[10px] text-blue-50 font-black uppercase opacity-90 tracking-widest line-clamp-1">{currentBooking?.pickupLocation}</p>
-                </div>
+      {isEditing && (
+        <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl border-2 border-blue-600 space-y-6 animate-in slide-in-from-top duration-300">
+           <div className="flex justify-between items-center">
+              <h4 className="text-sm font-black text-slate-900 uppercase tracking-widest">Update Profile</h4>
+              <button onClick={() => setIsEditing(false)} className="text-red-500 text-[10px] font-black">Close</button>
+           </div>
+           <div className="space-y-4">
+              <div className="flex gap-2">
+                 <button 
+                  onClick={() => onUpdateDriver({...activeDriver!, driverType: DriverType.ONLY_DRIVER})}
+                  className={`flex-1 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border ${activeDriver?.driverType === DriverType.ONLY_DRIVER ? 'bg-blue-600 text-white' : 'bg-slate-50 text-slate-400'}`}
+                 >Only Driver</button>
+                 <button 
+                  onClick={() => onUpdateDriver({...activeDriver!, driverType: DriverType.WITH_CAR})}
+                  className={`flex-1 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border ${activeDriver?.driverType === DriverType.WITH_CAR ? 'bg-blue-600 text-white' : 'bg-slate-50 text-slate-400'}`}
+                 >With Car</button>
               </div>
-              <div className="flex flex-col gap-2 shrink-0">
-                <button onClick={handleAcceptJob} className="bg-white text-blue-700 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-2xl active:scale-95 transition-all">Accept</button>
-                <button onClick={handleDeclineJob} className="bg-red-500/20 text-white/90 border border-white/20 px-6 py-2 rounded-xl text-[8px] font-black uppercase tracking-widest active:scale-95 transition-all">Decline</button>
+              <div className="grid grid-cols-2 gap-3">
+                 <div className="space-y-1">
+                    <label className="text-[8px] font-black text-slate-400 uppercase">Hourly</label>
+                    <input type="number" className="w-full p-4 bg-slate-50 rounded-xl font-bold" value={activeDriver?.hourlyRate} onChange={e => onUpdateDriver({...activeDriver!, hourlyRate: Number(e.target.value)})} />
+                 </div>
+                 <div className="space-y-1">
+                    <label className="text-[8px] font-black text-slate-400 uppercase">Per KM</label>
+                    <input type="number" className="w-full p-4 bg-slate-50 rounded-xl font-bold" value={activeDriver?.ratePerKm || 0} onChange={e => onUpdateDriver({...activeDriver!, ratePerKm: Number(e.target.value)})} />
+                 </div>
               </div>
-            </div>
-            
-            <div className="mt-6">
-              <div className="flex justify-between items-center text-[10px] text-white font-black uppercase tracking-widest mb-1.5 px-1">
-                <span className="flex items-center gap-1.5">
-                   <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-ping"></span>
-                   Expiring In
-                </span>
-                <span>{Math.ceil((timeLeft / 100) * 60)}s</span>
-              </div>
-              <div className="w-full h-3 bg-blue-900/50 rounded-full overflow-hidden border border-white/20 p-0.5">
-                <div 
-                  className={`h-full rounded-full transition-all duration-1000 ease-linear ${timeLeft < 25 ? 'bg-red-400' : 'bg-white'}`}
-                  style={{ width: `${timeLeft}%` }}
-                ></div>
-              </div>
-            </div>
-          </div>
+           </div>
         </div>
       )}
 
-      <div className={`px-4 py-2 transition-colors duration-500 text-center ${isOnline ? 'bg-green-500 shadow-sm' : 'bg-slate-500'}`}>
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white">
-          {isOnline ? '● Operational: Live on Network' : '○ System Paused'}
-        </p>
+      {/* Stats and Controls */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-slate-900 text-white p-6 rounded-[2rem] shadow-xl">
+           <p className="text-[9px] font-black opacity-60 uppercase tracking-widest mb-1">Available Matches</p>
+           <h3 className="text-3xl font-black">{activeDriver?.jobsLeft}</h3>
+        </div>
+        <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex flex-col justify-center">
+           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Earnings</p>
+           <h3 className="text-xl font-black text-slate-900">Settled Offline</h3>
+        </div>
       </div>
 
-      <div className="p-4">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-black text-slate-900 tracking-tighter">Donet Dashboard</h2>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-slate-500 text-[10px] font-black uppercase tracking-widest">{profileData.name}</span>
-              <span className="text-[9px] px-2 py-0.5 bg-slate-200 rounded text-slate-600 font-black uppercase tracking-tighter">
-                {profileData.vehicleProvision === VehicleProvision.DRIVER_OWNED ? 'With Car' : 'Expert Driver'}
-              </span>
-            </div>
-          </div>
-          <button onClick={() => setIsOnline(!isOnline)} className={`w-16 h-9 rounded-full relative transition-all duration-300 ${isOnline ? 'bg-green-500 shadow-lg' : 'bg-slate-300'}`}>
-            <div className={`absolute top-1.5 w-6 h-6 bg-white rounded-full transition-all duration-300 shadow-sm ${isOnline ? 'right-1.5' : 'left-1.5'}`}></div>
-          </button>
+      {/* Active Booking */}
+      {currentBooking && currentBooking.status !== BookingStatus.COMPLETED && (
+        <div className="bg-white rounded-[2.5rem] p-8 shadow-2xl border-t-4 border-blue-600 space-y-6">
+           <div className="flex justify-between items-center">
+              <div>
+                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Ongoing Request</p>
+                 <h3 className="text-xl font-black text-slate-900 leading-none">{currentBooking.status.replace('_', ' ')}</h3>
+              </div>
+              <button onClick={() => setShowChat(true)} className="p-4 bg-slate-50 rounded-2xl shadow-sm"><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg></button>
+           </div>
+           <div className="flex gap-2">
+              <button onClick={() => onUpdateStatus(BookingStatus.COMPLETED)} className="flex-1 bg-green-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest">Mark Done</button>
+              <button onClick={onDecline} className="flex-1 bg-slate-100 text-slate-400 py-4 rounded-2xl font-black text-xs uppercase tracking-widest">Cancel</button>
+           </div>
         </div>
+      )}
 
-        {activeJob ? (
-          <div className="space-y-4 animate-in fade-in duration-300">
-            <div className={`bg-white rounded-[2rem] p-6 shadow-xl border-l-4 border-l-blue-600`}>
-              <div className="flex justify-between items-start mb-6">
-                <div>
-                  <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Network Status</h4>
-                  <p className="text-lg font-black text-slate-900 leading-none">{activeJob.status.replace('_', ' ')}</p>
-                </div>
-                <div className="bg-blue-100 text-blue-700 p-2.5 rounded-xl"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></div>
-              </div>
-              <div className="space-y-5 mb-8">
-                 <div className="flex gap-4 items-center">
-                    <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center shrink-0 shadow-inner"><svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg></div>
-                    <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Customer</p><p className="text-lg font-black text-slate-900 leading-none">Verified Network User</p></div>
-                 </div>
-                 <div className="flex gap-4 items-center">
-                    <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center shrink-0"><svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path></svg></div>
-                    <div className="flex-1 overflow-hidden"><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Pickup From</p><p className="text-sm font-bold text-slate-900 truncate leading-tight">{activeJob.pickupLocation}</p></div>
-                 </div>
-              </div>
-              <div className="grid grid-cols-1 gap-3">
-                {activeJob.status === BookingStatus.ACCEPTED && <button onClick={() => onUpdateStatus(BookingStatus.ARRIVED)} className="w-full bg-slate-900 py-4 rounded-2xl text-white font-black text-xs uppercase tracking-widest shadow-lg">Arrived at Pickup</button>}
-                {activeJob.status === BookingStatus.ARRIVED && <button onClick={() => onUpdateStatus(BookingStatus.IN_PROGRESS)} className="w-full bg-blue-600 py-4 rounded-2xl text-white font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-100">Start Network Trip</button>}
-                {activeJob.status === BookingStatus.IN_PROGRESS && <button onClick={() => onUpdateStatus(BookingStatus.COMPLETED)} className="w-full bg-green-600 py-4 rounded-2xl text-white font-black text-xs uppercase tracking-widest shadow-xl shadow-green-100">Complete & Earn</button>}
-              </div>
+      {/* Pricing / Offline settlement reminder */}
+      <div className="bg-blue-600 p-8 rounded-[2.5rem] text-white space-y-4">
+        <h4 className="text-sm font-black uppercase tracking-[0.2em] opacity-80">Pricing Model</h4>
+        <div className="space-y-2">
+          <div className="flex justify-between items-center">
+            <span className="text-xs font-bold">Standard Rate</span>
+            <span className="text-2xl font-black">{formatCurrency(activeDriver?.hourlyRate || 0)}/HR</span>
+          </div>
+          {activeDriver?.driverType === DriverType.WITH_CAR && (
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-bold">Distance Rate</span>
+              <span className="text-2xl font-black">{formatCurrency(activeDriver?.ratePerKm || 0)}/KM</span>
             </div>
-          </div>
-        ) : (
-          <div className="space-y-6">
-             <div className="grid grid-cols-2 gap-4">
-                <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm"><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Jobs Left</p><p className="text-3xl font-black text-blue-600 leading-none tracking-tight">2 FREE</p></div>
-                <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm"><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Wallet</p><p className="text-3xl font-black text-slate-900 leading-none tracking-tight">₹0.00</p></div>
-             </div>
-             <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-sm">
-               <div className="flex justify-between items-center mb-5"><h4 className="text-sm font-black text-slate-900 tracking-tight">Booking Rate</h4><button onClick={() => setIsEditingRate(!isEditingRate)} className="text-[10px] font-black text-blue-600 uppercase tracking-widest">{isEditingRate ? 'Save' : 'Edit'}</button></div>
-               <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center shrink-0 shadow-inner"><svg className="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></div>
-                  <div className="flex-1">{isEditingRate ? <div className="flex items-center gap-2"><span className="text-lg font-black">₹</span><input type="number" value={hourlyRate} onChange={(e) => setHourlyRate(Number(e.target.value))} className="w-full py-1 border-b-2 border-blue-600 text-2xl font-black focus:outline-none" /></div> : <p className="text-2xl font-black text-slate-900">{formatCurrency(hourlyRate)}<span className="text-xs font-bold text-slate-400 ml-1">/HOUR</span></p>}</div>
-               </div>
-             </div>
-             <div className="bg-white rounded-[2rem] p-6 border border-slate-100 shadow-2xl shadow-blue-100/50">
-                <div className="flex justify-between items-center mb-6">
-                  <div><h4 className="text-sm font-black text-slate-900 tracking-tight">Donet.in Member</h4><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Monthly Access Pass</p></div>
-                  <div className="px-3 py-1 bg-green-50 text-green-600 rounded-full border border-green-100 flex items-center gap-1.5"><span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span><span className="text-[10px] font-black uppercase tracking-tight">Verified</span></div>
-                </div>
-                <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100 mb-6">
-                  <div><p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Tier</p><p className="text-sm font-black text-slate-900">{currentPlan} Partner</p></div>
-                  <div className="text-right"><p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Next Payment</p><p className="text-xs font-bold text-slate-900">{formattedDate}</p></div>
-                </div>
-                <div className="grid grid-cols-2 gap-3"><button onClick={() => alert("Renewal triggered via gateway.")} className="bg-slate-100 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest">Renew Now</button><button onClick={() => setCurrentPlan('Pro')} className="bg-slate-900 py-3 rounded-2xl text-[10px] font-black text-white uppercase tracking-widest">Go Pro</button></div>
-             </div>
-          </div>
-        )}
+          )}
+        </div>
+        <p className="text-[9px] font-medium opacity-70 leading-relaxed">Customers will coordinate payments directly with you. Use Donet.in to connect and verify matches.</p>
       </div>
 
-      {showAcceptedDetails && activeJob && (
-        <div className="fixed inset-0 z-[120] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="w-full max-w-md bg-white rounded-[3rem] p-8 shadow-2xl animate-in zoom-in-95 duration-300">
-            <div className="text-center mb-8">
-              <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 border-4 border-white shadow-md"><svg className="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"></path></svg></div>
-              <h2 className="text-2xl font-black text-slate-900 tracking-tight leading-none mb-1">Trip Confirmed!</h2>
-              <p className="text-slate-500 text-sm">Proceeding to customer's vehicle</p>
-            </div>
-            <div className="space-y-4 mb-8">
-              <div className="flex gap-4"><div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center shrink-0"><svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg></div><div><p className="text-[10px] font-black text-slate-400 uppercase mb-1">Customer</p><p className="text-lg font-black text-slate-900 leading-none">Donet User #123</p></div></div>
-              <div className="flex gap-4"><div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0"><svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path></svg></div><div className="flex-1 overflow-hidden"><p className="text-[10px] font-black text-slate-400 uppercase mb-1">Network Pickup</p><p className="text-sm font-black text-slate-900 truncate leading-tight">{activeJob.pickupLocation}</p></div></div>
-            </div>
-            <button onClick={() => setShowAcceptedDetails(false)} className="w-full bg-slate-900 py-5 rounded-2xl text-white font-black text-lg active:scale-95 transition-all shadow-xl">Launch Navigation</button>
-          </div>
-        </div>
+      {showChat && currentBooking && (
+        <ChatModal recipientName="Customer" messages={currentBooking.messages || []} onSendMessage={onSendMessage} onClose={() => setShowChat(false)} />
       )}
     </div>
   );

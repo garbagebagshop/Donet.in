@@ -1,223 +1,157 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { UserRole, Driver, DriverStatus, VehicleType, Coordinates, Booking, BookingStatus } from './types';
+import React, { useState, useEffect, useCallback } from 'react';
+import { UserRole, Driver, DriverStatus, VehicleType, Coordinates, Booking, BookingStatus, ChatMessage, ApprovalStatus, DriverType } from './types';
 import CustomerView from './components/CustomerView';
 import DriverDashboard from './components/DriverDashboard';
+import AdminDashboard from './components/AdminDashboard';
 import Header from './components/Header';
-import { calculateDistance } from './utils';
 
-const DEFAULT_LOCATION: Coordinates = { lat: 12.9716, lng: 77.5946 }; // Bangalore
-const ASSIGNMENT_TIMEOUT = 60000; // 60 seconds
+const DEFAULT_LOCATION: Coordinates = { lat: 12.9716, lng: 77.5946 };
 
-const MOCK_DRIVERS: Driver[] = [
+const INITIAL_DRIVERS: Driver[] = [
   {
     id: '1',
     name: 'Rajesh Kumar',
+    phone: '9876543210',
+    password: 'password123',
     photo: 'https://picsum.photos/200?random=1',
     rating: 4.8,
     experience: 8,
-    specialties: [VehicleType.SUV, VehicleType.MANUAL],
-    location: { lat: 12.9716, lng: 77.5946 }, // Bangalore
+    specialties: [VehicleType.SUV],
+    location: { lat: 12.9716, lng: 77.5946 },
     status: DriverStatus.AVAILABLE,
+    approvalStatus: ApprovalStatus.APPROVED,
+    driverType: DriverType.ONLY_DRIVER,
     jobsCompleted: 120,
-    subscriptionActive: true,
-    freeJobsLeft: 2,
-    additionalCharges: 0,
+    jobsLeft: 2,
     hourlyRate: 150
-  },
-  {
-    id: '2',
-    name: 'Amit Singh',
-    photo: 'https://picsum.photos/200?random=2',
-    rating: 4.5,
-    experience: 5,
-    specialties: [VehicleType.SEDAN, VehicleType.AUTOMATIC],
-    location: { lat: 12.9720, lng: 77.5950 },
-    status: DriverStatus.AVAILABLE,
-    jobsCompleted: 85,
-    subscriptionActive: true,
-    freeJobsLeft: 1,
-    additionalCharges: 50,
-    hourlyRate: 120
-  },
-  {
-    id: '3',
-    name: 'Suresh Raina',
-    photo: 'https://picsum.photos/200?random=3',
-    rating: 4.9,
-    experience: 12,
-    specialties: [VehicleType.LUXURY, VehicleType.AUTOMATIC],
-    location: { lat: 12.9730, lng: 77.5960 },
-    status: DriverStatus.AVAILABLE,
-    jobsCompleted: 340,
-    subscriptionActive: true,
-    freeJobsLeft: 0,
-    additionalCharges: 100,
-    hourlyRate: 250
   }
 ];
 
 const App: React.FC = () => {
   const [role, setRole] = useState<UserRole>(UserRole.CUSTOMER);
-  const [drivers, setDrivers] = useState<Driver[]>(MOCK_DRIVERS);
+  const [drivers, setDrivers] = useState<Driver[]>(INITIAL_DRIVERS);
   const [userLocation, setUserLocation] = useState<Coordinates | null>(null);
-  const [locationError, setLocationError] = useState<string | null>(null);
-  
+  const [activeDriverId, setActiveDriverId] = useState<string | null>(null);
   const [currentBooking, setCurrentBooking] = useState<Booking | null>(null);
-  const [candidateQueue, setCandidateQueue] = useState<string[]>([]);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Simple Router based on window.location
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
 
   useEffect(() => {
-    const handleSuccess = (position: GeolocationPosition) => {
-      const coords = { lat: position.coords.latitude, lng: position.coords.longitude };
-      setUserLocation(coords);
-      setLocationError(null);
-    };
-
-    const handleError = (error: GeolocationPositionError) => {
-      console.warn("Location error:", error.message);
-      setLocationError("Enable GPS for better nearby driver matching.");
-      if (!userLocation) setUserLocation(DEFAULT_LOCATION);
-    };
-
+    const handleLocationChange = () => setCurrentPath(window.location.pathname);
+    window.addEventListener('popstate', handleLocationChange);
+    
     if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(handleSuccess, handleError);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => setUserLocation(DEFAULT_LOCATION)
+      );
     } else {
       setUserLocation(DEFAULT_LOCATION);
     }
+
+    return () => window.removeEventListener('popstate', handleLocationChange);
   }, []);
 
-  const routeToNextDriver = useCallback(() => {
-    if (!currentBooking) return;
-    
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-
-    if (candidateQueue.length <= 1) {
-      handleUpdateBookingStatus(BookingStatus.CANCELLED);
-      alert("All nearby drivers are currently busy. Donet.in is looking for more partners in your area.");
-      return;
-    }
-
-    const nextQueue = candidateQueue.slice(1);
-    const nextDriverId = nextQueue[0];
-    const nextDriver = drivers.find(d => d.id === nextDriverId);
-
-    if (nextDriver) {
-      setCandidateQueue(nextQueue);
-      setCurrentBooking(prev => prev ? {
-        ...prev,
-        driverId: nextDriver.id,
-        driverName: nextDriver.name,
-        driverPhoto: nextDriver.photo,
-        timestamp: Date.now()
-      } : null);
-    }
-  }, [currentBooking, candidateQueue, drivers]);
-
-  useEffect(() => {
-    if (currentBooking?.status === BookingStatus.REQUESTED) {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => {
-        routeToNextDriver();
-      }, ASSIGNMENT_TIMEOUT);
-    }
-
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [currentBooking?.status, currentBooking?.driverId, routeToNextDriver]);
-
-  const handleCreateBooking = useCallback((selectedDriver: Driver) => {
-    const availableDrivers = drivers
-      .filter(d => d.status === DriverStatus.AVAILABLE)
-      .map(d => ({
-        ...d,
-        dist: userLocation ? calculateDistance(userLocation, d.location) : 0
-      }))
-      .sort((a, b) => a.dist - b.dist);
-
-    const otherCandidates = availableDrivers
-      .filter(d => d.id !== selectedDriver.id)
-      .map(d => d.id);
-    
-    const fullQueue = [selectedDriver.id, ...otherCandidates];
-    setCandidateQueue(fullQueue);
-
-    const newBooking: Booking = {
-      id: Math.random().toString(36).substr(2, 9),
-      customerId: 'user-1',
-      driverId: selectedDriver.id,
-      driverName: selectedDriver.name,
-      driverPhoto: selectedDriver.photo,
-      status: BookingStatus.REQUESTED,
-      timestamp: Date.now(),
-      pickupLocation: 'Your Current Area',
-      destinationLocation: 'Nearby Hub',
-    };
-    setCurrentBooking(newBooking);
-    
-    setDrivers(prev => prev.map(d => d.id === selectedDriver.id ? { ...d, status: DriverStatus.BUSY } : d));
-  }, [drivers, userLocation]);
+  const activeDriver = drivers.find(d => d.id === activeDriverId) || null;
 
   const handleUpdateBookingStatus = useCallback((status: BookingStatus) => {
     setCurrentBooking(prev => prev ? { ...prev, status } : null);
-    
+    if (status === BookingStatus.COMPLETED && activeDriverId) {
+      setDrivers(prev => prev.map(d => d.id === activeDriverId ? { 
+        ...d, 
+        jobsLeft: Math.max(0, d.jobsLeft - 1),
+        jobsCompleted: d.jobsCompleted + 1
+      } : d));
+    }
     if (status === BookingStatus.CANCELLED || status === BookingStatus.COMPLETED) {
       const driverId = currentBooking?.driverId;
       setDrivers(prev => prev.map(d => d.id === driverId ? { ...d, status: DriverStatus.AVAILABLE } : d));
-      setCandidateQueue([]);
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
     }
-  }, [currentBooking]);
+  }, [currentBooking, activeDriverId]);
 
-  const handleDeclineBooking = useCallback(() => {
-    routeToNextDriver();
-  }, [routeToNextDriver]);
+  const handleSendMessage = (text: string) => {
+    if (!currentBooking) return;
+    const newMessage: ChatMessage = {
+      id: Date.now().toString(),
+      sender: role === UserRole.CUSTOMER ? 'customer' : 'driver',
+      text,
+      timestamp: Date.now()
+    };
+    setCurrentBooking(prev => prev ? { ...prev, messages: [...(prev.messages || []), newMessage] } : null);
+  };
+
+  const updateDriver = (updatedDriver: Driver) => {
+    setDrivers(prev => {
+      const exists = prev.find(d => d.id === updatedDriver.id);
+      if (exists) return prev.map(d => d.id === updatedDriver.id ? updatedDriver : d);
+      return [...prev, updatedDriver];
+    });
+  };
+
+  // Admin route check
+  if (currentPath === '/admin8886') {
+    return <AdminDashboard drivers={drivers} onUpdateDriver={updateDriver} />;
+  }
 
   return (
-    <div className="min-h-screen flex flex-col max-w-lg mx-auto bg-white shadow-xl relative overflow-hidden">
+    <div className="h-screen w-screen flex flex-col max-w-lg mx-auto bg-white shadow-2xl relative overflow-hidden font-sans">
       <Header role={role} onRoleSwitch={setRole} />
       
-      {locationError && (
-        <div className="bg-amber-100 text-amber-800 px-4 py-1.5 text-[9px] text-center font-bold uppercase tracking-widest">
-          {locationError}
-        </div>
-      )}
-
-      <main className="flex-1 overflow-y-auto relative bg-slate-50">
+      <main className="flex-1 relative overflow-y-auto bg-slate-50 pt-20 pb-24">
         {role === UserRole.CUSTOMER ? (
           <CustomerView 
-            drivers={drivers} 
+            drivers={drivers.filter(d => d.approvalStatus === ApprovalStatus.APPROVED)} 
             userLocation={userLocation} 
             currentBooking={currentBooking}
-            onCreateBooking={handleCreateBooking}
+            onCreateBooking={(d) => {
+              const newBooking: Booking = {
+                id: Math.random().toString(36).substr(2, 9),
+                customerId: 'user-1',
+                driverId: d.id,
+                driverName: d.name,
+                driverPhoto: d.photo,
+                driverPhone: d.phone,
+                status: BookingStatus.REQUESTED,
+                timestamp: Date.now(),
+                pickupLocation: 'Current Vicinity',
+                messages: []
+              };
+              setCurrentBooking(newBooking);
+              setDrivers(prev => prev.map(drv => drv.id === d.id ? { ...drv, status: DriverStatus.BUSY } : drv));
+            }}
             onCancelBooking={() => handleUpdateBookingStatus(BookingStatus.CANCELLED)}
+            onSendMessage={handleSendMessage}
           />
         ) : (
           <DriverDashboard 
+            activeDriver={activeDriver}
+            onLogin={(driver) => {
+              setActiveDriverId(driver.id);
+              updateDriver(driver);
+            }}
+            onRegister={(driver) => {
+              updateDriver(driver);
+              setActiveDriverId(driver.id);
+            }}
+            onUpdateDriver={updateDriver}
             currentBooking={currentBooking}
             onUpdateStatus={handleUpdateBookingStatus}
-            onDecline={handleDeclineBooking}
+            onDecline={() => handleUpdateBookingStatus(BookingStatus.CANCELLED)}
+            onSendMessage={handleSendMessage}
           />
         )}
       </main>
 
-      <nav className="border-t bg-white h-16 flex items-center justify-around px-4 sticky bottom-0 z-50">
-        <button className="flex flex-col items-center text-blue-600">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
-          <span className="text-[10px] font-black uppercase tracking-widest mt-1">Explore</span>
+      <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-white h-20 flex items-center justify-around px-8 border-t border-slate-100 z-[200]">
+        <button onClick={() => setRole(UserRole.CUSTOMER)} className={`flex flex-col items-center gap-1 flex-1 ${role === UserRole.CUSTOMER ? 'text-blue-600' : 'text-slate-400'}`}>
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+          <span className="text-[9px] font-black uppercase tracking-widest">Find</span>
         </button>
-        <button className="flex flex-col items-center text-slate-400">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-          <span className="text-[10px] font-black uppercase tracking-widest mt-1">Bookings</span>
-        </button>
-        <button className="flex flex-col items-center text-slate-400">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
-          <span className="text-[10px] font-black uppercase tracking-widest mt-1">Network</span>
+        <button onClick={() => setRole(UserRole.DRIVER)} className={`flex flex-col items-center gap-1 flex-1 ${role === UserRole.DRIVER ? 'text-blue-600' : 'text-slate-400'}`}>
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+          <span className="text-[9px] font-black uppercase tracking-widest">Jobs</span>
         </button>
       </nav>
     </div>

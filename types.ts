@@ -1,7 +1,20 @@
 
 export enum UserRole {
   CUSTOMER = 'CUSTOMER',
-  DRIVER = 'DRIVER'
+  DRIVER = 'DRIVER',
+  ADMIN = 'ADMIN'
+}
+
+export enum ApprovalStatus {
+  UNREGISTERED = 'UNREGISTERED',
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED'
+}
+
+export enum DriverType {
+  ONLY_DRIVER = 'Only Driver',
+  WITH_CAR = 'With Car'
 }
 
 export enum DriverStatus {
@@ -28,34 +41,39 @@ export enum BookingStatus {
   CANCELLED = 'CANCELLED'
 }
 
-export enum VehicleProvision {
-  DRIVER_OWNED = 'DRIVER_OWNED',
-  CUSTOMER_OWNED = 'CUSTOMER_OWNED'
-}
-
 export interface Coordinates {
   lat: number;
   lng: number;
 }
 
+export interface ChatMessage {
+  id: string;
+  sender: 'customer' | 'driver';
+  text: string;
+  timestamp: number;
+}
+
 export interface Driver {
   id: string;
   name: string;
+  phone: string;
+  password?: string;
   photo: string;
   rating: number;
-  experience: number; // years
-  age?: number;
-  preferredArea?: string;
+  experience: number;
   specialties: VehicleType[];
   location: Coordinates;
   status: DriverStatus;
-  distance?: number;
+  approvalStatus: ApprovalStatus;
+  driverType: DriverType;
   jobsCompleted: number;
-  subscriptionActive: boolean;
-  freeJobsLeft: number;
-  additionalCharges: number;
-  hourlyRate?: number;
-  vehicleProvision?: VehicleProvision;
+  jobsLeft: number;
+  hourlyRate: number;
+  ratePerKm?: number;
+  documents?: {
+    license: string;
+    aadhaar: string;
+  };
 }
 
 export interface Booking {
@@ -64,8 +82,9 @@ export interface Booking {
   driverId: string;
   driverName: string;
   driverPhoto: string;
+  driverPhone: string;
   status: BookingStatus;
   timestamp: number;
   pickupLocation: string;
-  destinationLocation?: string;
+  messages?: ChatMessage[];
 }
