@@ -1,0 +1,32 @@
+Donet.in (Drivers Online Network) is a hyper-local, mobile-first marketplace designed to connect car owners with professional temporary drivers across India.
+Unlike traditional ride-hailing apps that take high commissions per trip, Donet.in operates on a SaaS (Software as a Service) model for drivers, allowing them to keep 100% of their earnings by paying a small monthly subscription fee.
+1. Core Mission & Business Model
+Direct Matching: The platform removes the middleman. Customers and drivers coordinate directly for payments and trip details.
+Subscription Model: Drivers register for a ₹100 monthly pass or start with 2 free job matches. This fee covers profile verification and visibility in the network.
+Locality-Based Logic: Instead of complex maps, the app uses high-accuracy geolocation to match users within specific city sectors or neighborhoods (e.g., "Nearby Bangalore Center").
+2. User Roles & Workflows
+A. For Customers (The "Find" Tab)
+Discovery: Users see a curated list of verified drivers sorted by proximity.
+Filtering: Ability to filter by driver expertise (SUV, Sedan, Auto, Manual/Automatic).
+Booking: One-tap "Confirm Match" which alerts the driver.
+Communication: Integrated real-time chat and direct phone calling features to coordinate the pickup.
+B. For Drivers (The "Jobs" Tab)
+Rigorous Onboarding: A 4-step registration process:
+Identity: Name, Mobile, and Password setup.
+Verification: Live selfie capture (via mobile camera) and document uploads (License & Aadhaar).
+Service Type: Choice between "Only Driver" or "With Car" (Fleet partner).
+Flexible Pricing: Drivers set their own Hourly Rates or Rates per KM.
+Dashboard: A management hub where drivers toggle their "Online" status, track their remaining connection credits, manage active bookings, and edit their professional profiles.
+Approval System: New profiles enter a "Pending" state until manually reviewed by the admin.
+C. For Admin (Hidden Portal)
+Secure Access: Accessible only via the /admin8886 path with high-security credentials.
+Moderation: Admin can view uploaded documents, approve/reject drivers, and modify driver details (like names or rates) to maintain network quality.
+3. Technical Foundation
+Mobile-Optimized UI: Built with React and Tailwind CSS, using a "Bottom Sheet" design philosophy common in high-end travel apps.
+Permissions: Utilizes browser Geolocation for matching and Camera API for instant profile photo verification.
+Infrastructure Ready: The code is structured to transition from local state to Turso DB and Cloudflare R2 for permanent data and document storage.
+Payment Integration: Integrated with Razorpay for the ₹100 activation fee.
+4. Admin Credentials (Internal Use Only)
+Route: /admin8886
+User ID: 8886575507
+Password: `Harsh@123
