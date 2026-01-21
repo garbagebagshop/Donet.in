@@ -86,7 +86,7 @@ if (process.env.NODE_ENV === "production" && !process.env.VERCEL) {
 }
 
 // Export the app for Vercel serverless
-export default app;
+export default () => app;
 
 // Start server if not on Vercel
 if (!process.env.VERCEL) {
