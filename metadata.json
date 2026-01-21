@@ -1,0 +1,13 @@
+{
+  "name": "Donet.in - Drivers Online Network",
+  "short_name": "Donet",
+  "description": "Find verified nearest drivers in your city or get local driver jobs across India. Donet.in is the premier Drivers Online Network for temporary and permanent booking.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "requestFramePermissions": [
+    "geolocation",
+    "camera"
+  ]
+}
