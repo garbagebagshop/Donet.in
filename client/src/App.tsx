@@ -14,6 +14,7 @@ import DriverDashboard from "@/pages/DriverDashboard";
 import BookingsPage from "@/pages/BookingsPage";
 import ProfilePage from "@/pages/ProfilePage";
 import DriverOnboarding from "@/pages/DriverOnboarding";
+import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component, role }: { component: React.ComponentType; role?: "customer" | "driver" }) {
   const { user, isLoading } = useAuth();
@@ -47,7 +48,9 @@ function HomeRouter() {
   if (!user) return <Redirect to="/login" />;
   
   if (user.role === "driver") return <DriverDashboard />;
-  if (user.role === "admin") return <AdminDashboard />; // Admin default
+  // if (user.role === "admin") return <AdminDashboard />; // Admin default - commented out for now
+  return <CustomerHome />;
+}
   return <CustomerHome />;
 }
 

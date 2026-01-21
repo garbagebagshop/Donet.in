@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { useDrivers, useCreateBooking } from "@/hooks/use-drivers"; // Actually need to fix imports, useCreateBooking is in use-bookings
-import { useCreateBooking as useCreateBookingHook } from "@/hooks/use-bookings";
-import { useGeolocation } from "@/hooks/use-geolocation";
+import { useCreateBooking } from "@/hooks/use-bookings";
+import { useDrivers } from "@/hooks/use-drivers";
 import { useGeolocation } from "@/hooks/use-geolocation";
 import { Header } from "@/components/Header";
 import { DriverCard } from "@/components/DriverCard";
@@ -17,7 +16,7 @@ type DriverWithUser = Driver & { user: User };
 export default function CustomerHome() {
   const [selectedDriver, setSelectedDriver] = useState<DriverWithUser | null>(null);
   const { data: drivers, isLoading } = useDrivers();
-  const createBooking = useCreateBookingHook();
+  const createBooking = useCreateBooking();
   const { position, getCurrentPosition } = useGeolocation();
   
   const [pickup, setPickup] = useState("");
