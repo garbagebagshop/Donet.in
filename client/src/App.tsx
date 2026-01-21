@@ -13,8 +13,7 @@ import CustomerHome from "@/pages/CustomerHome";
 import DriverDashboard from "@/pages/DriverDashboard";
 import BookingsPage from "@/pages/BookingsPage";
 import ProfilePage from "@/pages/ProfilePage";
-import AdminDashboard from "@/pages/AdminDashboard";
-import NotFound from "@/pages/not-found";
+import DriverOnboarding from "@/pages/DriverOnboarding";
 
 function ProtectedRoute({ component: Component, role }: { component: React.ComponentType; role?: "customer" | "driver" }) {
   const { user, isLoading } = useAuth();
@@ -68,8 +67,7 @@ function Router() {
         <ProtectedRoute component={ProfilePage} />
       </Route>
 
-      {/* Secret Admin Route */}
-      <Route path="/admin8886" component={AdminDashboard} />
+      <Route path="/onboarding" component={DriverOnboarding} />
 
       <Route component={NotFound} />
     </Switch>

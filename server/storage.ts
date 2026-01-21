@@ -38,7 +38,7 @@ export interface IStorage {
   
   // Chat operations
   createChat(chat: InsertChat): Promise<Chat>;
-  getChats(bookingId: number): Promise<Chat[]>;
+  getChatsByBooking(bookingId: number): Promise<(Chat & { sender: User })[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -203,8 +203,16 @@ export class DatabaseStorage implements IStorage {
     return chat;
   }
 
-  async getChats(bookingId: number): Promise<Chat[]> {
-    return await db.select().from(chats).where(eq(chats.bookingId, bookingId)).orderBy(chats.timestamp);
+  async getChatsByBooking(bookingId: number): Promise<(Chat & { sender: User })[]> {
+    const results = await db.select()
+      .from(chats)
+      .where(eq(chats.bookingId, bookingId))
+      .leftJoin(users, eq(chats.senderId, users.id))
+      .orderBy(chats.timestamp);
+    return results.map(row => ({
+      ...row.chats,
+      sender: row.users!
+    })) as any;
   }
 }
 

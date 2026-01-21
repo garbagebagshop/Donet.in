@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useDrivers, useCreateBooking } from "@/hooks/use-drivers"; // Actually need to fix imports, useCreateBooking is in use-bookings
 import { useCreateBooking as useCreateBookingHook } from "@/hooks/use-bookings";
+import { useGeolocation } from "@/hooks/use-geolocation";
+import { useGeolocation } from "@/hooks/use-geolocation";
 import { Header } from "@/components/Header";
 import { DriverCard } from "@/components/DriverCard";
 import { Driver, User } from "@shared/schema";
@@ -16,20 +18,24 @@ export default function CustomerHome() {
   const [selectedDriver, setSelectedDriver] = useState<DriverWithUser | null>(null);
   const { data: drivers, isLoading } = useDrivers();
   const createBooking = useCreateBookingHook();
+  const { position, getCurrentPosition } = useGeolocation();
   
   const [pickup, setPickup] = useState("");
   const [drop, setDrop] = useState("");
 
-  const handleBook = () => {
+  const handleBook = async () => {
     if (!selectedDriver || !pickup) return;
+    
+    // Get current location for pickup coordinates
+    await getCurrentPosition();
     
     createBooking.mutate({
       driverId: selectedDriver.id, // This links to driver table
       customerId: 0, // Backend handles this from session
       pickupLocation: pickup,
       dropLocation: drop,
-      pickupLat: "12.9716", // Mock coords for Bangalore
-      pickupLng: "77.5946",
+      pickupLat: position?.latitude.toString() || "12.9716", // Fallback to Bangalore coords
+      pickupLng: position?.longitude.toString() || "77.5946",
     }, {
       onSuccess: () => setSelectedDriver(null)
     });

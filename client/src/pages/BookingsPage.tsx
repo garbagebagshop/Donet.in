@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, MapPin, Calendar, CheckCircle, Clock } from "lucide-react";
 import { format } from "date-fns";
+import { Chat } from "@/components/Chat";
 
 export default function BookingsPage() {
   const { user } = useAuth();
@@ -80,6 +81,13 @@ export default function BookingsPage() {
                   </div>
                 </div>
               </CardContent>
+              {/* Chat for active bookings */}
+              {["accepted", "started"].includes(booking.status || "") && (
+                <div className="p-4 border-t">
+                  <h4 className="font-medium mb-2">Chat</h4>
+                  <Chat bookingId={booking.id} />
+                </div>
+              )}
             </Card>
           ))
         )}

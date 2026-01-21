@@ -1,6 +1,7 @@
 import { useAuth } from "@/hooks/use-auth";
 import { useUpdateDriverProfile } from "@/hooks/use-drivers";
 import { useBookings, useUpdateBookingStatus } from "@/hooks/use-bookings";
+import { useGeolocation } from "@/hooks/use-geolocation";
 import { Header } from "@/components/Header";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,17 +16,30 @@ export default function DriverDashboard() {
   const updateProfile = useUpdateDriverProfile();
   const { data: bookings, isLoading } = useBookings();
   const updateStatus = useUpdateBookingStatus();
+  const { position, getCurrentPosition } = useGeolocation();
   
   // Safe access to driver profile properties
   const driverProfile = user?.driverProfile;
   const isOnline = driverProfile?.isOnline ?? false;
   const isVerified = driverProfile?.isVerified ?? false;
 
-  const toggleOnline = () => {
+  const toggleOnline = async () => {
     if (!driverProfile) return;
+    
+    let updateData: any = { isOnline: !isOnline };
+    
+    // If going online, get current location
+    if (!isOnline) {
+      await getCurrentPosition();
+      if (position) {
+        updateData.currentLat = position.latitude.toString();
+        updateData.currentLng = position.longitude.toString();
+      }
+    }
+    
     updateProfile.mutate({
       id: driverProfile.id,
-      data: { isOnline: !isOnline }
+      data: updateData
     });
   };
 

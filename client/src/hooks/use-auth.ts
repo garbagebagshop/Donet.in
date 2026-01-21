@@ -58,9 +58,14 @@ export function useAuth() {
       }
       return await res.json();
     },
-    onSuccess: () => {
-      toast({ title: "Account created", description: "Please log in with your new account." });
-      setLocation("/login");
+    onSuccess: (data) => {
+      queryClient.setQueryData([api.auth.me.path], data);
+      toast({ title: "Account created", description: "Welcome to Donet!" });
+      if (data.role === "driver") {
+        setLocation("/onboarding");
+      } else {
+        setLocation("/");
+      }
     },
     onError: (error: Error) => {
       toast({ 

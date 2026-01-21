@@ -144,7 +144,27 @@ export const api = {
         401: errorSchemas.unauthorized,
       },
     },
-  }
+  },
+  chats: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/chats',
+      query: z.object({
+        bookingId: z.string(),
+      }),
+      responses: {
+        200: z.array(z.custom<typeof chats.$inferSelect & { sender: typeof users.$inferSelect }>()),
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/chats',
+      input: insertChatSchema,
+      responses: {
+        201: z.custom<typeof chats.$inferSelect>(),
+      },
+    },
+  },
 };
 
 export function buildUrl(path: string, params?: Record<string, string | number>): string {

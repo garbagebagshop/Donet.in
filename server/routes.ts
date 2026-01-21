@@ -171,5 +171,37 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(updatedDriver);
   });
 
+  // File upload route
+  app.post('/api/upload', async (req, res) => {
+    if (!req.user) return res.status(401).send("Unauthorized");
+    try {
+      const file = req.files?.file;
+      if (!file) return res.status(400).send("No file uploaded");
+
+      // For now, just return a mock URL
+      const url = `https://example.com/uploads/${Date.now()}-${file.name}`;
+      res.json({ url });
+    } catch (error) {
+      res.status(500).send("Upload failed");
+    }
+  });
+
+  // Chat routes
+  app.get(api.chats.list.path, async (req, res) => {
+    if (!req.user) return res.status(401).send("Unauthorized");
+    const bookingId = parseInt(req.query.bookingId as string);
+    const chats = await storage.getChatsByBooking(bookingId);
+    res.json(chats);
+  });
+
+  app.post(api.chats.create.path, async (req, res) => {
+    if (!req.user) return res.status(401).send("Unauthorized");
+    const chat = await storage.createChat({
+      ...req.body,
+      senderId: req.user.id,
+    });
+    res.status(201).json(chat);
+  });
+
   return httpServer;
 }

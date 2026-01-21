@@ -75,10 +75,16 @@ export function setupAuth(app: Express) {
       });
 
       // If user is a driver, create driver profile too
-      if (req.body.role === 'driver' && req.body.driverDetails) {
+      if (req.body.role === 'driver') {
          await storage.createDriver({
              userId: user.id,
-             ...req.body.driverDetails
+             vehicleType: 'sedan', // default
+             hourlyRate: 150,
+             perKmRate: 15,
+             citySector: '',
+             isOnline: false,
+             subscriptionStatus: 'inactive',
+             isVerified: false,
          });
       }
 
