@@ -51,8 +51,6 @@ function HomeRouter() {
   // if (user.role === "admin") return <AdminDashboard />; // Admin default - commented out for now
   return <CustomerHome />;
 }
-  return <CustomerHome />;
-}
 
 function Router() {
   return (
