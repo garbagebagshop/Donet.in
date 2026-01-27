@@ -1,10 +1,67 @@
 import express, { type Request, Response, NextFunction } from "express";
+import helmet from "helmet";
+import cors from "cors";
+import compression from "compression";
+import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import dotenv from "dotenv";
+import logger from "./logger";
+
+dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
+
+// Security middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "https:", "blob:"],
+      scriptSrc: ["'self'"],
+      connectSrc: ["'self'", "https://api.razorpay.com"]
+    }
+  }
+}));
+
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' ? 'https://donet.in' : 'http://localhost:5173',
+  credentials: true
+}));
+
+app.use(compression());
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.'
+});
+app.use('/api/', limiter);
+
+// Stricter rate limiting for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // limit each IP to 5 auth attempts per windowMs
+  message: 'Too many authentication attempts, please try again later.'
+});
+app.use('/api/login', authLimiter);
+app.use('/api/register', authLimiter);
+
+// Error handling middleware
+app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
+  logger.error('Unhandled error', { error: err.message, stack: err.stack, url: req.url });
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
 
 declare module "http" {
   interface IncomingMessage {
@@ -30,7 +87,7 @@ export function log(message: string, source = "express") {
     hour12: true,
   });
 
-  console.log(`${formattedTime} [${source}] ${message}`);
+  logger.info(`${formattedTime} [${source}] ${message}`);
 }
 
 app.use((req, res, next) => {

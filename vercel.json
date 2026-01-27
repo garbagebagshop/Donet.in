@@ -1,7 +1,27 @@
 {
   "version": 2,
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/dist/index.js" },
-    { "source": "/((?!assets|favicon).*)", "destination": "/index.html" }
-  ]
+  "builds": [
+    {
+      "src": "dist/index.cjs",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "dist/index.cjs"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "functions": {
+    "dist/index.cjs": {
+      "maxDuration": 30
+    }
+  }
 }

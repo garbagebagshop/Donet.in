@@ -2,13 +2,27 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
-import { api } from "@shared/routes";
+import { api } from "../shared/routes";
 import { z } from "zod";
+import { pushService, vapidKeys } from "./push";
 
-import { scrypt, randomBytes } from "crypto";
-import { promisify } from "util";
+import multer from 'multer';
 
 const scryptAsync = promisify(scrypt);
+
+const upload = multer({
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow only images
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  },
+});
 
 async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -17,16 +31,23 @@ async function hashPassword(password: string) {
 }
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
-  // Set up authentication first
-  setupAuth(app);
+  // Health check endpoint
+  app.get('/api/health', (req, res) => {
+    res.json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV
+    });
+  });
 
   // Seed Admin User if not exists
-  const existingAdmin = await storage.getUserByUsername("8886575507");
+  const existingAdmin = await storage.getUserByUsername(process.env.ADMIN_USERNAME || "8886575507");
   if (!existingAdmin) {
-    const hashed = await hashPassword("Harsh@123");
+    const hashed = await hashPassword(process.env.ADMIN_PASSWORD || "Harsh@123");
     await storage.createUser({
       name: "Super Admin",
-      username: "8886575507",
+      username: process.env.ADMIN_USERNAME || "8886575507",
       password: hashed,
       role: "admin",
       profilePhoto: "https://ui-avatars.com/api/?name=Admin&background=random"
@@ -172,17 +193,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // File upload route
-  app.post('/api/upload', async (req, res) => {
+  app.post('/api/upload', upload.single('file'), async (req, res) => {
     if (!req.user) return res.status(401).send("Unauthorized");
-    try {
-      const file = req.files?.file;
-      if (!file) return res.status(400).send("No file uploaded");
 
-      // For now, just return a mock URL
-      const url = `https://example.com/uploads/${Date.now()}-${file.name}`;
-      res.json({ url });
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
+
+      const result = await uploadFile(req.file);
+      res.json({ url: result.url, key: result.key });
     } catch (error) {
-      res.status(500).send("Upload failed");
+      console.error('Upload error:', error);
+      res.status(500).json({ error: 'File upload failed' });
     }
   });
 
@@ -201,6 +224,95 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       senderId: req.user.id,
     });
     res.status(201).json(chat);
+  });
+
+  // Payment routes
+  app.post('/api/payments/create-order', async (req, res) => {
+    if (!req.user) return res.status(401).send("Unauthorized");
+
+    try {
+      const { amount, currency = 'INR', receipt, notes } = req.body;
+
+      if (!amount || amount < 1) {
+        return res.status(400).json({ error: 'Invalid amount' });
+      }
+
+      const order = await createPaymentOrder({
+        amount: parseFloat(amount),
+        currency,
+        receipt: receipt || `receipt_${Date.now()}`,
+        notes
+      });
+
+      res.json({
+        orderId: order.id,
+        amount: order.amount,
+        currency: order.currency,
+        key: process.env.RAZORPAY_KEY_ID
+      });
+    } catch (error) {
+      console.error('Payment order creation error:', error);
+      res.status(500).json({ error: 'Failed to create payment order' });
+    }
+  });
+
+  app.post('/api/payments/verify', async (req, res) => {
+    if (!req.user) return res.status(401).send("Unauthorized");
+
+    try {
+      const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+      const isValid = verifyPaymentSignature(
+        razorpay_order_id,
+        razorpay_payment_id,
+        razorpay_signature
+      );
+
+      if (isValid) {
+        // Update user subscription status
+        if (req.body.type === 'subscription') {
+          await storage.updateDriver(req.user.id, {
+            subscriptionStatus: 'active',
+            subscriptionExpiry: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+          });
+        }
+
+        res.json({ success: true, message: 'Payment verified successfully' });
+      } else {
+        res.status(400).json({ error: 'Payment verification failed' });
+      }
+    } catch (error) {
+      console.error('Payment verification error:', error);
+      res.status(500).json({ error: 'Payment verification failed' });
+    }
+  });
+
+  // Push notification routes
+  app.get('/api/push/vapid-public-key', (req, res) => {
+    res.json({ publicKey: vapidKeys.publicKey });
+  });
+
+  app.post('/api/push/subscribe', (req, res) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    const subscription = req.body.subscription;
+    if (!subscription) {
+      return res.status(400).json({ error: 'Subscription data required' });
+    }
+
+    pushService.subscribe(req.user.id.toString(), subscription);
+    res.json({ success: true });
+  });
+
+  app.post('/api/push/unsubscribe', (req, res) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    pushService.unsubscribe(req.user.id.toString());
+    res.json({ success: true });
   });
 
   return httpServer;

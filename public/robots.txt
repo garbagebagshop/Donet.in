@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://donet-drivers-online.vercel.app/sitemap.xml

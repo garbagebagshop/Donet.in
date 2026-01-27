@@ -6,7 +6,7 @@ import {
   type Booking, type InsertBooking, type UpdateBookingRequest,
   type Chat, type InsertChat,
   type DriverWithUser
-} from "@shared/schema";
+} from "../shared/schema";
 import { eq, and, desc } from "drizzle-orm";
 
 import session from "express-session";
